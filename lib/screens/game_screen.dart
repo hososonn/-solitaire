@@ -72,283 +72,456 @@ class GameScreen extends StatelessWidget {
                 ],
               ),
             ),
-            body: Consumer<DeckManager>(
-              builder: (context, deckManager, _) {
-                if (deckManager.isGameWon && !deckManager.isWinDialogShown) {
-                  // ダイアログが表示済みであることをDeckManagerに通知
-                  deckManager.markWinDialogAsShown();
+            body: LayoutBuilder(
+              // LayoutBuilderで利用可能な描画スペースのサイズを取得
+              builder: (context, constraints) {
+                // --- 画面サイズに基づいてカードのサイズを計算 ---
+                final double screenWidth = constraints.maxWidth;
+                // final double screenHeight = constraints.maxHeight; // 必要に応じて
 
-                  // build完了後にダイアログを安全に表示
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    Future.delayed(const Duration(seconds: 2), () {
-                      // 2秒遅らせる
-                      _showWinDialog(context, deckManager);
-                    });
-                  });
-                }
+                // カード間の小さなスペース
+                final double cardPadding = 4.0;
+                final double cardWidth = (screenWidth - (cardPadding * 6)) / 5;
+
+                // カードの縦横比を維持して高さを計算 (トランプの標準的な比率 約1.4)
+                final double cardHeight = cardWidth * 1.4;
+
                 return Stack(
                   children: [
+                    // 背景 (変更なし)
                     Container(
                       decoration: BoxDecoration(
                         gradient: RadialGradient(
                           center: Alignment.center,
                           radius: 0.9,
                           colors: [
-                            Colors.green.shade500, // 中心の色 (明るい緑)
-                            Colors.green.shade800, // 外側の色 (濃い緑)
+                            Colors.green.shade500,
+                            Colors.green.shade800,
                           ],
                         ),
+                      ),
+                    ),
+
+                    // --- ▼▼▼ ここから上部UIのコード ▼▼▼ ---
+                    Positioned(
+                      top: cardPadding * 2,
+                      left: cardPadding * 2,
+                      right: cardPadding * 2,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // 【左側】組札（Foundation）
+                          Row(
+                            children: deckManager.foundations
+                                .asMap()
+                                .entries
+                                .map((entry) {
+                                  int index = entry.key;
+                                  var foundation = entry.value;
+                                  // ... (suitSymbols, suitColorsの定義はここに移動)
+                                  final suitSymbols = ['♥', '♠', '♣'];
+                                  final suitColors = [
+                                    Colors.red,
+                                    Colors.black,
+                                    Colors.green,
+                                  ];
+
+                                  return Padding(
+                                    padding: EdgeInsets.only(
+                                      right: cardPadding,
+                                    ),
+                                    child: DragTarget<List<SolitaireCard>>(
+                                      onWillAcceptWithDetails: (details) {
+                                        if (details.data.length != 1)
+                                          return false;
+                                        final dragged = details.data.first;
+                                        if (foundation.isEmpty)
+                                          return dragged.rank == 1;
+                                        final top = foundation.last;
+                                        return dragged.suit == top.suit &&
+                                            dragged.rank == top.rank + 1;
+                                      },
+                                      onAcceptWithDetails: (details) {
+                                        deckManager.handleDropOnFoundation(
+                                          details.data,
+                                          index,
+                                        );
+                                      },
+                                      builder:
+                                          (
+                                            context,
+                                            candidateData,
+                                            rejectedData,
+                                          ) {
+                                            return Container(
+                                              width: cardWidth,
+                                              height: cardHeight,
+                                              decoration: BoxDecoration(
+                                                border: Border.all(
+                                                  color: Colors.yellow
+                                                      .withOpacity(0.6),
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                      cardWidth * 0.1,
+                                                    ),
+                                              ),
+                                              child: foundation.isEmpty
+                                                  ? Center(
+                                                      child: Text(
+                                                        suitSymbols[index],
+                                                        style: TextStyle(
+                                                          fontSize:
+                                                              cardWidth * 0.8,
+                                                          color:
+                                                              suitColors[index]
+                                                                  .withOpacity(
+                                                                    0.5,
+                                                                  ),
+                                                        ),
+                                                      ),
+                                                    )
+                                                  : CardWidget(
+                                                      cards: [foundation.last],
+                                                      isDraggable: false,
+                                                      sourceType:
+                                                          DragSource.foundation,
+                                                      width: cardWidth,
+                                                      height: cardHeight,
+                                                    ),
+                                            );
+                                          },
+                                    ),
+                                  );
+                                })
+                                .toList(),
+                          ),
+
+                          // 【右側】山札と捨て札
+                          Row(
+                            children: [
+                              // 捨て札（めくったカード）
+                              SizedBox(
+                                width: cardWidth,
+                                height: cardHeight,
+                                child: Stack(
+                                  children: deckManager.drawed.map((card) {
+                                    return CardWidget(
+                                      cards: [card],
+                                      isDraggable:
+                                          deckManager.drawed.last == card,
+                                      sourceType: DragSource.drawPile,
+                                      width: cardWidth,
+                                      height: cardHeight,
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                              SizedBox(width: cardPadding),
+                              // 山札
+                              GestureDetector(
+                                onTap: () => deckManager.drawCard(),
+                                child: Container(
+                                  width: cardWidth,
+                                  height: cardHeight,
+                                  decoration: BoxDecoration(
+                                    color: deckManager.hasCards
+                                        ? Colors.blueGrey.shade800
+                                        : Colors.transparent,
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.3),
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      cardWidth * 0.1,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      deckManager.remainingCards.toString(),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                     // 場札
                     // メインの列描画部分の修正
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: deckManager.columns.asMap().entries.map((
-                        entry,
-                      ) {
-                        int colIndex = entry.key;
-                        var col = entry.value;
-
-                        return Padding(
-                          padding: EdgeInsets.only(
-                            top: 150,
-                            right: colIndex == deckManager.columns.length - 1
-                                ? 0
-                                : 3,
-                          ),
-                          child: DragTarget<List<SolitaireCard>>(
-                            onWillAcceptWithDetails: (details) {
-                              final dragged = details.data.first;
-                              return col.isEmpty
-                                  ? dragged.rank == 13
-                                  : col.last.suit != dragged.suit &&
-                                        dragged.rank == col.last.rank - 1;
-                            },
-                            onAcceptWithDetails: (details) {
-                              // deckManager.moveCardsToColumn(details.data, colIndex);
-
-                              // if (deckManager.dragSourceColumnIndex != null) {
-                              //   deckManager.flipTopCardInColumn(
-                              //     deckManager.dragSourceColumnIndex!,
-                              //   );
-                              //   deckManager.dragSourceColumnIndex =
-                              //       null; // 次のドラッグのためにリセット
-                              // }
-                              deckManager.handleDropOnColumn(
-                                details.data,
-                                colIndex,
-                              );
-                            },
-                            builder: (context, candidateData, rejectedData) {
-                              double cardHeight = 90;
-                              double overlap = cardHeight * -0.89;
-
-                              if (col.isEmpty) {
-                                return Container(
-                                  width: 80,
-                                  height: 110,
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: Colors.grey),
-                                    borderRadius: BorderRadius.circular(8),
-                                    color: Colors.transparent,
-                                  ),
-                                );
-                              }
-
-                              int firstFaceUp = col.indexWhere(
-                                (c) => c.isFaceUp,
-                              );
-                              if (firstFaceUp == -1) {
-                                firstFaceUp = col.length;
-                              }
-
-                              return Column(
-                                children: [
-                                  // 裏カード（ドラッグ不可だが、リストとして統一）
-                                  for (int i = 0; i < firstFaceUp; i++)
-                                    Transform.translate(
-                                      offset: Offset(0, i * overlap),
-                                      child: CardWidget(
-                                        cards: [col[i]], // 単一カードもリストとして渡す
-                                        isDraggable: false,
-                                        sourceType: DragSource.column,
-                                      ),
-                                    ),
-
-                                  // 表カード（タップでドラッグ対象選択可能）
-                                  if (firstFaceUp < col.length)
-                                    Transform.translate(
-                                      offset: Offset(0, firstFaceUp * overlap),
-                                      child: CardWidget(
-                                        cards: col.sublist(
-                                          firstFaceUp,
-                                        ), // 複数カードをリストとして渡す
-                                        isDraggable: true,
-                                        sourceType: DragSource.column, // ← 追加
-                                        sourceIndex: colIndex,
-                                        onCardTapped: (tappedIndex) {
-                                          // タップされたカードのインデックスをログ出力（デバッグ用）
-                                          print(
-                                            'Tapped card at index: $tappedIndex in column $colIndex',
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                ],
-                              );
-                            },
-                          ),
-                        );
-                      }).toList(),
-                    ),
-
-                    // 山札
                     Positioned(
-                      top: 0,
-                      right: 5,
-                      child: GestureDetector(
-                        onTap: () => deckManager.drawCard(),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Container(
-                              width: 80,
-                              height: 110,
-                              decoration: BoxDecoration(
-                                color: deckManager.hasCards
-                                    ? Colors.grey
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.black),
-                              ),
-                            ),
-                            Text(
-                              deckManager.remainingCards.toString(),
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: deckManager.remainingCards == 0
-                                    ? Colors.black
-                                    : Colors.white,
-                                shadows: deckManager.remainingCards == 0
-                                    ? [] // 0枚のときは影なし
-                                    : const [
-                                        Shadow(
-                                          blurRadius: 2,
-                                          color: Colors.black,
-                                        ),
-                                      ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    // 表向きカード（山札からめくったカード）
-                    Positioned(
-                      top: 0,
-                      right: 87,
-                      child: Stack(
-                        children: deckManager.drawed.asMap().entries.map((
-                          entry,
-                        ) {
-                          int index = entry.key;
-                          SolitaireCard card = entry.value;
-
-                          // 最上位のカードだけ draggable にする
-                          bool isTopCard =
-                              index == deckManager.drawed.length - 1;
-
-                          return Transform.translate(
-                            offset: Offset(
-                              0,
-                              -index * 0,
-                            ), // 今はずらしてないが重ね仕様なら調整可能
-                            child: CardWidget(
-                              cards: [card], // ★ 単体でも必ずリストで渡す
-                              isDraggable: isTopCard, // ★ 一番上だけドラッグ可能
-                              sourceType: DragSource.drawPile,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-
-                    // foundationを追加
-                    Positioned(
-                      top: 5,
-                      left: 7,
+                      top:
+                          cardHeight + (cardPadding * 2) + 5, // 上の段の高さに応じて位置を調整
+                      left: 0,
+                      right: 0,
+                      bottom: 0, // 利用可能な高さをすべて使う
                       child: Row(
-                        children: deckManager.foundations.asMap().entries.map((
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start, // 各列は上から描画を開始
+                        children: deckManager.columns.asMap().entries.map((
                           entry,
                         ) {
-                          int index = entry.key;
-                          var foundation = entry.value;
+                          int colIndex = entry.key;
+                          var col = entry.value;
 
-                          final suitSymbols = ['♥', '♠', '♣']; // 4種類あるはず
-                          final suitColors = [
-                            Colors.red.shade400,
-                            Colors.black,
-                            Colors.green.shade400,
-                          ];
+                          // Expandedで各列の幅を均等にする
+                          return Expanded(
+                            child: Padding(
+                              // カード間の左右のスペースを確保
+                              padding: EdgeInsets.symmetric(
+                                horizontal: cardPadding / 2,
+                              ),
+                              child: DragTarget<List<SolitaireCard>>(
+                                // (onWillAccept, onAccept は変更なし)
+                                onWillAcceptWithDetails: (details) {
+                                  final dragged = details.data.first;
+                                  return col.isEmpty
+                                      ? dragged.rank == 13
+                                      : !col
+                                            .last
+                                            .isFaceUp // 裏向きカードの上には置けない
+                                      ? false
+                                      : col.last.suit != dragged.suit &&
+                                            dragged.rank == col.last.rank - 1;
+                                },
+                                onAcceptWithDetails: (details) {
+                                  deckManager.handleDropOnColumn(
+                                    details.data,
+                                    colIndex,
+                                  );
+                                },
+                                builder: (context, candidateData, rejectedData) {
+                                  // カードの重なり具合をカードの高さから動的に計算
+                                  final double overlap = cardHeight * 0.6;
 
-                          return DragTarget<List<SolitaireCard>>(
-                            onWillAcceptWithDetails: (details) {
-                              // ここで foundation ルールを追加チェックするとさらに良い
-                              final dragged = details.data.last; // 移動する束の一番下
-                              if (foundation.isEmpty) {
-                                return dragged.rank == 1; // Aからしか置けない
-                              }
-                              final top = foundation.last;
-                              return dragged.suit == top.suit &&
-                                  dragged.rank == top.rank + 1;
-                            },
-                            onAcceptWithDetails: (details) {
-                              deckManager.handleDropOnFoundation(
-                                details.data,
-                                index,
-                              );
-                            },
-                            builder: (context, candidateData, rejectedData) {
-                              return Container(
-                                width: 75,
-                                height: 105,
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: Colors.yellow,
-                                    width: 2,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: foundation.isEmpty
-                                    ? Text(
-                                        suitSymbols[index], // 枠内にスート表示
-                                        style: TextStyle(
-                                          fontSize: 100,
-                                          color: suitColors[index], // 薄く表示
+                                  // 列が空の場合
+                                  if (col.isEmpty) {
+                                    return Container(
+                                      width: cardWidth,
+                                      height: cardHeight,
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: Colors.white.withOpacity(0.2),
                                         ),
-                                      )
-                                    : IgnorePointer(
-                                        child: CardWidget(
-                                          cards: [
-                                            foundation.last,
-                                          ], // ★ 単体でもリストで渡す
-                                          isDraggable:
-                                              false, // foundation上のカードは動かせない想定
-                                          sourceType: DragSource.foundation,
+                                        borderRadius: BorderRadius.circular(
+                                          cardWidth * 0.1,
                                         ),
                                       ),
-                              );
-                            },
+                                    );
+                                  }
+
+                                  final int firstFaceUp = col.indexWhere(
+                                    (c) => c.isFaceUp,
+                                  );
+                                  final int faceDownCount = (firstFaceUp == -1)
+                                      ? col.length
+                                      : firstFaceUp;
+                                  final faceUpCards = (firstFaceUp == -1)
+                                      ? <SolitaireCard>[]
+                                      : col.sublist(firstFaceUp);
+
+                                  // カードの重なりをStackで表現
+                                  return SizedBox(
+                                    width: cardWidth,
+                                    child: Stack(
+                                      children: [
+                                        // 裏向きのカード
+                                        for (int i = 0; i < faceDownCount; i++)
+                                          Positioned(
+                                            top: i * (cardHeight - overlap),
+                                            left: 0,
+                                            child: CardWidget(
+                                              cards: [col[i]],
+                                              isDraggable: false,
+                                              sourceType: DragSource.column,
+                                              sourceIndex: colIndex,
+                                              width: cardWidth, // 計算済みのサイズを渡す
+                                              height: cardHeight, // 計算済みのサイズを渡す
+                                            ),
+                                          ),
+
+                                        // 表向きのカード
+                                        if (faceUpCards.isNotEmpty)
+                                          Positioned(
+                                            top:
+                                                faceDownCount *
+                                                (cardHeight - overlap),
+                                            left: 0,
+                                            child: CardWidget(
+                                              cards: faceUpCards,
+                                              isDraggable: true,
+                                              sourceType: DragSource.column,
+                                              sourceIndex: colIndex,
+                                              width: cardWidth, // 計算済みのサイズを渡す
+                                              height: cardHeight, // 計算済みのサイズを渡す
+                                              onCardTapped: (tappedIndex) {
+                                                print(
+                                                  'Tapped card at index: $tappedIndex in column $colIndex',
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
                           );
                         }).toList(),
                       ),
                     ),
+
+                    // // 山札
+                    // Positioned(
+                    //   top: 0,
+                    //   right: 5,
+                    //   child: GestureDetector(
+                    //     onTap: () => deckManager.drawCard(),
+                    //     child: Stack(
+                    //       alignment: Alignment.center,
+                    //       children: [
+                    //         Container(
+                    //           width: 80,
+                    //           height: 110,
+                    //           decoration: BoxDecoration(
+                    //             color: deckManager.hasCards
+                    //                 ? Colors.grey
+                    //                 : Colors.transparent,
+                    //             borderRadius: BorderRadius.circular(10),
+                    //             border: Border.all(color: Colors.black),
+                    //           ),
+                    //         ),
+                    //         Text(
+                    //           deckManager.remainingCards.toString(),
+                    //           style: TextStyle(
+                    //             fontSize: 20,
+                    //             fontWeight: FontWeight.bold,
+                    //             color: deckManager.remainingCards == 0
+                    //                 ? Colors.black
+                    //                 : Colors.white,
+                    //             shadows: deckManager.remainingCards == 0
+                    //                 ? [] // 0枚のときは影なし
+                    //                 : const [
+                    //                     Shadow(
+                    //                       blurRadius: 2,
+                    //                       color: Colors.black,
+                    //                     ),
+                    //                   ],
+                    //           ),
+                    //         ),
+                    //       ],
+                    //     ),
+                    //   ),
+                    // ),
+                    // // 表向きカード（山札からめくったカード）
+                    // Positioned(
+                    //   top: 0,
+                    //   right: 87,
+                    //   child: Stack(
+                    //     children: deckManager.drawed.asMap().entries.map((
+                    //       entry,
+                    //     ) {
+                    //       int index = entry.key;
+                    //       SolitaireCard card = entry.value;
+
+                    //       // 最上位のカードだけ draggable にする
+                    //       bool isTopCard =
+                    //           index == deckManager.drawed.length - 1;
+
+                    //       return Transform.translate(
+                    //         offset: Offset(
+                    //           0,
+                    //           -index * 0,
+                    //         ), // 今はずらしてないが重ね仕様なら調整可能
+                    //         child: CardWidget(
+                    //           cards: [card], // ★ 単体でも必ずリストで渡す
+                    //           isDraggable: isTopCard, // ★ 一番上だけドラッグ可能
+                    //           sourceType: DragSource.drawPile,
+                    //         ),
+                    //       );
+                    //     }).toList(),
+                    //   ),
+                    // ),
+
+                    // // foundationを追加
+                    // Positioned(
+                    //   top: 5,
+                    //   left: 7,
+                    //   child: Row(
+                    //     children: deckManager.foundations.asMap().entries.map((
+                    //       entry,
+                    //     ) {
+                    //       int index = entry.key;
+                    //       var foundation = entry.value;
+
+                    //       final suitSymbols = ['♥', '♠', '♣']; // 4種類あるはず
+                    //       final suitColors = [
+                    //         Colors.red.shade400,
+                    //         Colors.black,
+                    //         Colors.green.shade400,
+                    //       ];
+
+                    //       return DragTarget<List<SolitaireCard>>(
+                    //         onWillAcceptWithDetails: (details) {
+                    //           // ここで foundation ルールを追加チェックするとさらに良い
+                    //           final dragged = details.data.last; // 移動する束の一番下
+                    //           if (foundation.isEmpty) {
+                    //             return dragged.rank == 1; // Aからしか置けない
+                    //           }
+                    //           final top = foundation.last;
+                    //           return dragged.suit == top.suit &&
+                    //               dragged.rank == top.rank + 1;
+                    //         },
+                    //         onAcceptWithDetails: (details) {
+                    //           deckManager.handleDropOnFoundation(
+                    //             details.data,
+                    //             index,
+                    //           );
+                    //         },
+                    //         builder: (context, candidateData, rejectedData) {
+                    //           return Container(
+                    //             width: 75,
+                    //             height: 105,
+                    //             margin: const EdgeInsets.symmetric(
+                    //               horizontal: 4,
+                    //             ),
+                    //             decoration: BoxDecoration(
+                    //               border: Border.all(
+                    //                 color: Colors.yellow,
+                    //                 width: 2,
+                    //               ),
+                    //               borderRadius: BorderRadius.circular(8),
+                    //             ),
+                    //             child: foundation.isEmpty
+                    //                 ? Text(
+                    //                     suitSymbols[index], // 枠内にスート表示
+                    //                     style: TextStyle(
+                    //                       fontSize: 100,
+                    //                       color: suitColors[index], // 薄く表示
+                    //                     ),
+                    //                   )
+                    //                 : IgnorePointer(
+                    //                     child: CardWidget(
+                    //                       cards: [
+                    //                         foundation.last,
+                    //                       ], // ★ 単体でもリストで渡す
+                    //                       isDraggable:
+                    //                           false, // foundation上のカードは動かせない想定
+                    //                       sourceType: DragSource.foundation,
+                    //                     ),
+                    //                   ),
+                    //           );
+                    //         },
+                    //       );
+                    //     }).toList(),
+                    //   ),
+                    // ),
                     if (deckManager.isGameWon) const GameClearAnimationWidget(),
                   ],
                 );

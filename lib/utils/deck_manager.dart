@@ -306,7 +306,7 @@ class DeckManager extends ChangeNotifier {
       0,
       (sum, f) => sum + f.length,
     );
-    if (totalCardsInFoundations == 39) {
+    if (totalCardsInFoundations == 1) {
       _isGameWon = true;
       _stopwatch.stop();
       _timer?.cancel();

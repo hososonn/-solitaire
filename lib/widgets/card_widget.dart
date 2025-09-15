@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../models/card_model.dart';
 import 'package:provider/provider.dart';
+import '../models/card_model.dart';
 import '../utils/deck_manager.dart';
 
 class CardWidget extends StatefulWidget {
@@ -8,15 +8,21 @@ class CardWidget extends StatefulWidget {
   final bool isDraggable;
   final Function(int)? onCardTapped;
   final DragSource sourceType;
-  final int? sourceIndex; // columnの場合の列番号など
+  final int? sourceIndex;
+
+  // --- ▼▼▼ サイズを外部から受け取るプロパティを追加 ▼▼▼ ---
+  final double width;
+  final double height;
 
   const CardWidget({
     super.key,
     required this.cards,
     this.isDraggable = true,
     this.onCardTapped,
-    required this.sourceType, // 必須にする
+    required this.sourceType,
     this.sourceIndex,
+    required this.width,
+    required this.height,
   }) : assert(cards.length > 0);
 
   @override
@@ -24,24 +30,24 @@ class CardWidget extends StatefulWidget {
 }
 
 class _CardWidgetState extends State<CardWidget> {
-  // --- STATE ---
-  // ドラッグ中のカードの開始インデックスを保持する状態変数
-  // null の場合はドラッグ中でないことを示す
   int? _draggingIndex;
-  // -------------
 
   @override
   Widget build(BuildContext context) {
+    // isDraggableがfalseの場合は、buildStackViewではなく単一のカード描画を直接呼ぶ
     if (!widget.isDraggable) {
-      return _buildStackView(widget.cards);
+      // isDraggable:false のカードは常に1枚なので、cards.firstで安全
+      return _buildSingleCard(widget.cards.first);
     }
     return _buildTappableStackView(widget.cards);
   }
 
   Widget _buildTappableStackView(List<SolitaireCard> cards) {
-    final double overlap = 40.0;
-    final double cardWidth = 80.0;
-    final double cardHeight = 110.0;
+    // --- ▼▼▼ 固定値だったサイズをwidgetのプロパティから受け取るように変更 ▼▼▼ ---
+    final double cardWidth = widget.width;
+    final double cardHeight = widget.height;
+    final double overlap = cardHeight * 0.35; // 高さに応じて重なり具合を調整
+
     final int n = cards.length;
     final double totalHeight = cardHeight + (n - 1) * overlap;
 
@@ -52,17 +58,13 @@ class _CardWidgetState extends State<CardWidget> {
         clipBehavior: Clip.none,
         children: [
           for (int index = 0; index < n; index++)
-            // --- ここからが重要 ---
-            // ドラッグ中のカード束（_draggingIndex以降のカード）は非表示にする
             if (_draggingIndex != null && index >= _draggingIndex!)
-              // ドラッグ中のカードがあった場所には、高さを維持するためのSizedBoxを置く
               Positioned(
                 top: index * overlap,
                 left: 0,
                 child: SizedBox(width: cardWidth, height: cardHeight),
               )
             else
-              // ドラッグ中でないカード、またはドラッグ対象より上のカードは通常通り描画
               Positioned(
                 top: index * overlap,
                 left: 0,
@@ -76,43 +78,30 @@ class _CardWidgetState extends State<CardWidget> {
                       data: dragCards,
                       feedback: Material(
                         color: Colors.transparent,
-                        elevation: 4,
+                        elevation: 4, // elevationは影を強調するため残しても良い
                         child: SizedBox(
                           width: cardWidth,
                           height: draggingHeight,
-                          child: _buildStackView(dragCards),
+                          // isGlowing: true を渡して光彩エフェクトを有効にする
+                          child: _buildStackView(dragCards, isGlowing: true),
                         ),
                       ),
-                      // childWhenDraggingは不要になるので削除
-                      // 代わりにStateで描画を制御する
-
-                      // ドラッグ開始時に状態を更新
                       onDragStarted: () {
-                        // listen: false で DeckManager を取得
                         final deckManager = Provider.of<DeckManager>(
                           context,
                           listen: false,
                         );
+
+                        // --- ▼▼▼ ロジックをシンプルに修正 ▼▼▼ ---
                         deckManager.dragSource = widget.sourceType;
                         deckManager.sourceIndex = widget.sourceIndex;
-
-                        // このカードがどの列に属しているかを探す
-                        for (int i = 0; i < deckManager.columns.length; i++) {
-                          // ドラッグされたカード束の最初のカードがこの列に含まれているかチェック
-                          if (deckManager.columns[i].contains(
-                            dragCards.first,
-                          )) {
-                            deckManager.dragSourceColumnIndex =
-                                i; // 移動元のインデックスをセット
-                            break; // 見つかったらループを抜ける
-                          }
-                        }
+                        // 古いdragSourceColumnIndexのロジックは削除
+                        // ------------------------------------
 
                         setState(() {
                           _draggingIndex = index;
                         });
                       },
-                      // ドラッグ終了時（成功・失敗問わず）に状態をリセット
                       onDragEnd: (details) {
                         setState(() {
                           _draggingIndex = null;
@@ -126,51 +115,19 @@ class _CardWidgetState extends State<CardWidget> {
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => widget.onCardTapped?.call(index),
-                        child: SizedBox(
-                          width: cardWidth,
-                          height: cardHeight,
-                          child: _buildSingleCard(cards[index]),
-                        ),
+                        // childは直接_buildSingleCardを呼ぶ
+                        child: _buildSingleCard(cards[index]),
                       ),
                     );
                   },
                 ),
               ),
-          // --- ここまで ---
         ],
       ),
     );
   }
 
-  // Widget _buildSingleCard(SolitaireCard card) {
-  //   // (変更なし)
-  //   return Container(
-  //     width: 80,
-  //     height: 110,
-  //     decoration: BoxDecoration(
-  //       color: card.isFaceUp ? Colors.white : Colors.grey,
-  //       border: Border.all(color: Colors.black),
-  //       borderRadius: BorderRadius.circular(10),
-  //     ),
-  //     alignment: Alignment.center,
-  //     child: card.isFaceUp
-  //         ? Text(
-  //             '${card.displayValue}${card.suitSymbol}',
-  //             style: TextStyle(
-  //               fontSize: 20,
-  //               color: card.suit == Suit.hearts
-  //                   ? Colors.red
-  //                   : card.suit == Suit.spades
-  //                   ? Colors.black
-  //                   : Colors.green,
-  //             ),
-  //           )
-  //         : const Text(''),
-  //   );
-  // }
-
-  Widget _buildSingleCard(SolitaireCard card) {
-    // スートに応じて文字色を決定するロジック（変更なし）
+  Widget _buildSingleCard(SolitaireCard card, {bool isGlowing = false}) {
     final Color suitColor;
     switch (card.suit) {
       case Suit.hearts:
@@ -183,52 +140,58 @@ class _CardWidgetState extends State<CardWidget> {
         suitColor = Colors.green;
         break;
     }
-
-    // カードの数字とマークを結合した文字列
     final cardContent = '${card.displayValue}${card.suitSymbol}';
 
     return Container(
-      width: 80,
-      height: 110,
+      width: widget.width, // ← widgetのプロパティを使用
+      height: widget.height, // ← widgetのプロパティを使用
       decoration: BoxDecoration(
-        color: card.isFaceUp ? Colors.white : Colors.grey,
-        border: Border.all(color: Colors.black),
-        borderRadius: BorderRadius.circular(10),
+        color: card.isFaceUp
+            ? Colors.white
+            : Colors.blueGrey.shade800, // 裏面の色を調整
+        border: Border.all(color: Colors.black.withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(
+          widget.width * 0.1,
+        ), // 角丸もカードサイズに合わせる
         boxShadow: [
-          if (card.isFaceUp) // 表向きのカードにだけ影をつける
+          // 通常の影
+          if (card.isFaceUp)
             const BoxShadow(
               color: Colors.black26,
               blurRadius: 4,
               offset: Offset(2, 2),
             ),
+
+          // isGlowingがtrueの時だけ、黄色い光彩エフェクトを追加
+          if (isGlowing)
+            BoxShadow(
+              color: Colors.amber.withOpacity(0.9),
+              blurRadius: 20.0,
+              spreadRadius: 2.0,
+            ),
         ],
       ),
       child: card.isFaceUp
           ? Stack(
-              // ← Stackウィジェットで要素を重ねる
               children: [
-                // 1. 中央の大きな文字
-                Positioned(
-                  top: 10.0,
-                  left: 3,
+                Align(
+                  alignment: const Alignment(0.0, 1),
                   child: Text(
                     card.suitSymbol,
                     style: TextStyle(
-                      fontSize: 100, // 中央は少し大きめに
-                      color: suitColor,
+                      fontSize: widget.width * 0.9, // スートのサイズをカード幅に合わせる
+                      color: suitColor.withOpacity(1),
                     ),
                   ),
                 ),
-
-                // 2. 左上の小さな文字
                 Positioned(
-                  top: 2.0,
-                  left: 8.0,
+                  top: widget.height * 0.05,
+                  left: widget.width * 0.1,
                   child: Text(
                     cardContent,
                     style: TextStyle(
                       fontFamily: 'Cardo',
-                      fontSize: 30, // 左上は小さめに
+                      fontSize: widget.width * 0.25, // フォントサイズをカード幅に合わせる
                       fontWeight: FontWeight.bold,
                       color: suitColor,
                     ),
@@ -236,20 +199,17 @@ class _CardWidgetState extends State<CardWidget> {
                 ),
               ],
             )
-          : const SizedBox.shrink(), // 裏向きの場合は何も表示しない
+          : const SizedBox.shrink(),
     );
   }
 
-  // (_buildStackViewは変更なし)
-  Widget _buildStackView(List<SolitaireCard> cards) {
-    double overlap = 40.0;
+  Widget _buildStackView(List<SolitaireCard> cards, {bool isGlowing = false}) {
+    final double overlap = widget.height * 0.35;
     return Stack(
       children: cards.asMap().entries.map((entry) {
-        int index = entry.key;
-        SolitaireCard card = entry.value;
         return Transform.translate(
-          offset: Offset(0, index * overlap),
-          child: _buildSingleCard(card),
+          offset: Offset(0, entry.key * overlap),
+          child: _buildSingleCard(entry.value),
         );
       }).toList(),
     );
